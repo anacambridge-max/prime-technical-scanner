@@ -1,5 +1,5 @@
 import "server-only";
-import { resolveNifty500Universe } from "./nifty500";
+import { resolveFnoUniverse } from "./universe";
 import {
   fetchDailyCandles,
   fetchIntraday5MinCandles,
@@ -209,7 +209,7 @@ export async function runScan(now: Date = new Date()): Promise<ScanResult> {
   let instruments;
   let unresolved: string[] = [];
   try {
-    const universe = await resolveNifty500Universe();
+    const universe = await resolveFnoUniverse();
     instruments = universe.instruments;
     unresolved = universe.unresolved;
   } catch (err) {

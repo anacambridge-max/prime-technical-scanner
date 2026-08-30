@@ -1,12 +1,17 @@
 # Prime Technical Live Scanner
 
-Intraday NIFTY 500 scanner/dashboard built on Previous Day High (PDH) / Previous Day
+Intraday **NSE F&O universe** scanner/dashboard built on Previous Day High (PDH) / Previous Day
 Low (PDL), confirmed on **completed 5-minute candles**, with 5-minute volume and 20 EMA
 as confirmation filters. **This app never places or modifies any order — it is read-only.**
 
 - Next.js 14 (App Router) + TypeScript + React + Tailwind CSS
 - All Upstox calls happen server-side only (`lib/upstox.ts`); the access token is never
   sent to the browser
+- **The scanned universe is every NSE stock currently eligible for Futures & Options
+  trading** — derived live from Upstox's own instrument master (`lib/universe.ts`),
+  not a hand-maintained list. When NSE adds or removes a stock from F&O (it reviews
+  this roughly twice a year), the scanner picks up the change automatically on its
+  next universe refresh (every 6 hours) — nothing to edit in code.
 - WATCH → SETUP → CONFIRMED state machine, matching the exact rules in the spec (no
   confirmation from volume or EMA alone — a real PDH/PDL breakout + close + volume +
   EMA + follow-through is required)
@@ -22,7 +27,7 @@ as confirmation filters. **This app never places or modifies any order — it is
   scanner use a "completed candle" for anything — this app will not confirm off a
   still-forming candle.
 - From 09:20 onward, every scan cycle (default every 45s, configurable in
-  `app/page.tsx` → `REFRESH_MS`) re-evaluates all NIFTY 500 symbols. As soon as a
+  `app/page.tsx` → `REFRESH_MS`) re-evaluates every NSE F&O stock. As soon as a
   symbol's completed candles satisfy the full CONFIRMED sequence (breakout/breakdown →
   volume → EMA alignment → follow-through), it appears in the table and **stays there
   for the rest of the day**, even outside 9:15–10:00.
@@ -41,7 +46,7 @@ lib/
   volume.ts       5-minute volume multiple + tier classification
   prime.ts        The WATCH/SETUP/CONFIRMED state machine (the core engine)
   upstox.ts       Server-only Upstox API client (retries, auth/rate-limit handling)
-  nifty500.ts     Universe resolution (seed symbols -> Upstox instrument keys)
+  universe.ts     Resolves the live NSE F&O stock universe from Upstox's instrument master
   scanner.ts      Orchestrates one full scan cycle across the universe
   store.ts        Per-trading-day persistence so signals don't disappear intraday
 app/
@@ -49,19 +54,21 @@ app/
   api/health/route.ts  Lightweight health check
   page.tsx             Dashboard UI (client component, polls /api/scan)
 components/            StatCard, FiltersBar, SignalsTable, SignalLogPanel, StatusBadge
-data/nifty500-seed.json  Starter symbol list — see note below
 scripts/test-logic.ts    Pure-logic test suite (PDH/PDL, EMA, volume, confirmation)
 ```
 
-## ⚠️ Before going live: replace the NIFTY 500 symbol list
+## The scanned universe: NSE F&O stocks, always current
 
-`data/nifty500-seed.json` ships with ~200 liquid, well-known NSE large/mid-cap symbols
-as a **starter universe** so the app works out of the box. It is **not** guaranteed to
-be the complete, current official NIFTY 500 constituent list — index membership changes
-twice a year. Before relying on this for real trading decisions, download the current
-official list from NSE Indices (niftyindices.com → NIFTY 500 → constituents CSV) and
-replace the contents of that JSON file with the full 500 trading symbols. The scanner
-logic itself doesn't care how many symbols are in the universe.
+`lib/universe.ts` builds the scanner's universe by reading Upstox's own NSE instrument
+master at runtime: it finds every stock-futures contract (`segment=NSE_FO`,
+`instrument_type=FUT`), extracts each contract's underlying equity symbol, and resolves
+that symbol to its `NSE_EQ` instrument key. Index futures (NIFTY, BANKNIFTY, etc.) are
+automatically excluded since they have no underlying equity to scan.
+
+This means there is **no static symbol list to maintain** — when NSE adds or removes a
+stock from the F&O segment, the next universe refresh (cached for 6 hours) picks it up
+automatically. If you'd rather scan a fixed, hand-picked list instead of "all current
+F&O stocks", swap the body of `resolveFnoUniverse()` for your own symbol array.
 
 ## Setup
 

@@ -183,21 +183,32 @@ interface UpstoxInstrumentRow {
   name: string;
   segment: string;
   instrument_type: string;
+  underlying_symbol?: string;
+  underlying_key?: string;
 }
 
 /**
- * Downloads and parses the Upstox NSE instrument master (JSON, gzipped in production —
- * Upstox serves it over HTTPS; fetch() handles gzip transparently).
- * Filters down to equities so we can resolve NIFTY 500 trading symbols to instrument keys.
+ * Downloads the raw Upstox NSE instrument master (JSON — fetch() handles the gzip
+ * transparently). This single file contains every NSE segment (equity, F&O, index),
+ * distinguished by the `segment` field, so both equity resolution and F&O universe
+ * derivation read from the same download.
  */
-export async function fetchNseEquityInstrumentMaster(): Promise<Instrument[]> {
+export async function fetchNseInstrumentMasterRaw(): Promise<UpstoxInstrumentRow[]> {
   const res = await fetch("https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz", {
     cache: "no-store",
   });
   if (!res.ok) {
     throw new Error(`Failed to download Upstox instrument master (HTTP ${res.status})`);
   }
-  const rows = (await res.json()) as UpstoxInstrumentRow[];
+  return (await res.json()) as UpstoxInstrumentRow[];
+}
+
+/**
+ * Downloads and parses the Upstox NSE instrument master, filtered to equities only.
+ * Used to resolve trading symbols to instrument keys.
+ */
+export async function fetchNseEquityInstrumentMaster(): Promise<Instrument[]> {
+  const rows = await fetchNseInstrumentMasterRaw();
   return rows
     .filter((r) => r.segment === "NSE_EQ" && r.instrument_type === "EQ")
     .map((r) => ({ symbol: r.trading_symbol, instrumentKey: r.instrument_key, name: r.name }));

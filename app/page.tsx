@@ -72,7 +72,7 @@ export default function DashboardPage() {
         <StatCard label="Confirmed" value={result?.counts.confirmed ?? 0} accent="confirmed" />
         <StatCard label="Setups" value={result?.counts.setup ?? 0} accent="setup" />
         <StatCard label="Watch" value={result?.counts.watch ?? 0} accent="watch" />
-        <StatCard label="NIFTY 500 Universe" value={result?.counts.universe ?? 0} />
+        <StatCard label="F&O Universe" value={result?.counts.universe ?? 0} />
         <StatCard
           label="Last Update"
           value={meta?.lastSuccessfulScanTime ? formatTime(meta.lastSuccessfulScanTime) : "—"}
@@ -119,7 +119,7 @@ function Header({
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 className="text-lg font-semibold tracking-tight">PRIME TECHNICAL LIVE SCANNER</h1>
-        <p className="text-2xs text-ink-500 mt-0.5">NIFTY 500 · 5-minute PDH/PDL breakout &amp; breakdown confirmation</p>
+        <p className="text-2xs text-ink-500 mt-0.5">NSE F&O · 5-minute PDH/PDL breakout &amp; breakdown confirmation</p>
       </div>
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1.5 text-2xs">
