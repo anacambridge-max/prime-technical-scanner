@@ -208,14 +208,18 @@ export async function runScan(now: Date = new Date()): Promise<ScanResult> {
 
   let instruments;
   let unresolved: string[] = [];
+  let usedFallbackUniverse = false;
   try {
     const universe = await resolveFnoUniverse();
     instruments = universe.instruments;
     unresolved = universe.unresolved;
+    usedFallbackUniverse = universe.usedFallback;
   } catch (err) {
-    // Total universe failure: keep showing the last successful scan rather than zeroing out.
-    const message =
-      "Upstox instrument master could not be downloaded. Showing last successful scan.";
+    // Total universe failure with no disk fallback available either: keep showing the
+    // last successful scan rather than zeroing out, and surface the real reason so
+    // it's actionable (e.g. "HTTP 403" means the CDN is blocking this server's requests).
+    const detail = err instanceof Error ? err.message : "unknown error";
+    const message = `Upstox instrument master could not be downloaded (${detail}). Showing last successful scan.`;
     return buildResultFromState(state, {
       scanTime: scanTimeIso,
       lastSuccessfulScanTime: state.lastMeta?.lastSuccessfulScanTime ?? null,
@@ -225,7 +229,7 @@ export async function runScan(now: Date = new Date()): Promise<ScanResult> {
       scannedCount: 0,
       errorCount: 1,
       dataStatus: "ERROR",
-      errors: [{ symbol: "UNIVERSE", reason: err instanceof Error ? err.message : "unknown error" }],
+      errors: [{ symbol: "UNIVERSE", reason: detail }],
       usedStaleData: true,
       message,
     });
@@ -271,8 +275,9 @@ export async function runScan(now: Date = new Date()): Promise<ScanResult> {
     dataStatus,
     errors: errors.slice(0, 50),
     usedStaleData: false,
-    message:
-      dataStatus === "ERROR"
+    message: usedFallbackUniverse
+      ? "Using the last known-good F&O stock list (live download from Upstox failed this cycle); scan results below are still fresh."
+      : dataStatus === "ERROR"
         ? "Upstox temporarily returned no usable 5-minute candles for this scan. Showing last successful scan."
         : dataStatus === "PARTIAL"
         ? `${errorCount} of ${scannedCount} symbols failed this cycle; showing results for the rest.`

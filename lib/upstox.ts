@@ -1,4 +1,5 @@
 import "server-only";
+import { gunzipSync } from "zlib";
 import { Candle, Instrument } from "./types";
 
 /**
@@ -188,19 +189,46 @@ interface UpstoxInstrumentRow {
 }
 
 /**
- * Downloads the raw Upstox NSE instrument master (JSON — fetch() handles the gzip
- * transparently). This single file contains every NSE segment (equity, F&O, index),
- * distinguished by the `segment` field, so both equity resolution and F&O universe
- * derivation read from the same download.
+ * Downloads the raw Upstox NSE instrument master. This file is served as genuine
+ * gzip-compressed bytes (not auto-decompressed via a Content-Encoding header — several
+ * Upstox developers have hit this same trap, e.g. having to explicitly gunzip before
+ * parsing even in pandas/requests), so we detect the gzip magic bytes ourselves and
+ * decompress with Node's zlib before parsing JSON. A browser-like User-Agent is set
+ * because Upstox's asset CDN has been reported to 403 plain server-side/bot requests.
  */
 export async function fetchNseInstrumentMasterRaw(): Promise<UpstoxInstrumentRow[]> {
   const res = await fetch("https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz", {
     cache: "no-store",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      Accept: "application/json, application/gzip, application/octet-stream, */*",
+    },
   });
   if (!res.ok) {
-    throw new Error(`Failed to download Upstox instrument master (HTTP ${res.status})`);
+    throw new Error(`Upstox instrument master request failed: HTTP ${res.status} ${res.statusText}`);
   }
-  return (await res.json()) as UpstoxInstrumentRow[];
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const isGzip = buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
+
+  let text: string;
+  try {
+    text = (isGzip ? gunzipSync(buffer) : buffer).toString("utf-8");
+  } catch (err) {
+    throw new Error(
+      `Upstox instrument master response could not be decompressed (${err instanceof Error ? err.message : "unknown gunzip error"})`
+    );
+  }
+
+  try {
+    return JSON.parse(text) as UpstoxInstrumentRow[];
+  } catch {
+    // Most likely a CDN block page (HTML) rather than the actual data file.
+    throw new Error(
+      `Upstox instrument master response was not valid JSON — likely blocked/rate-limited by the CDN. First 120 chars: ${text.slice(0, 120)}`
+    );
+  }
 }
 
 /**

@@ -1,4 +1,6 @@
 import "server-only";
+import fs from "fs/promises";
+import path from "path";
 import { fetchNseInstrumentMasterRaw } from "./upstox";
 import { Instrument } from "./types";
 
@@ -39,38 +41,77 @@ let cachedUniverse: Instrument[] | null = null;
 let cachedAt = 0;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // F&O eligibility doesn't change intraday
 
-export async function resolveFnoUniverse(): Promise<{ instruments: Instrument[]; unresolved: string[] }> {
+// Disk-backed fallback so a transient Upstox/CDN block doesn't zero out the whole
+// dashboard for the rest of the day — mirrors the philosophy in lib/store.ts. Same
+// caveat applies on Vercel: reliable within a warm instance, not guaranteed across
+// cold starts/scaled instances. Swap for @vercel/kv if you need stronger guarantees.
+const DISK_CACHE_PATH = path.join(process.env.SCANNER_STATE_DIR || "/tmp", "prime-scanner-state", "fno-universe.json");
+
+async function readDiskCache(): Promise<{ instruments: Instrument[]; savedAt: string } | null> {
+  try {
+    const raw = await fs.readFile(DISK_CACHE_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function writeDiskCache(instruments: Instrument[]): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(DISK_CACHE_PATH), { recursive: true });
+    await fs.writeFile(DISK_CACHE_PATH, JSON.stringify({ instruments, savedAt: new Date().toISOString() }), "utf-8");
+  } catch {
+    // Best-effort only — an in-memory cache miss just means we retry the live fetch next time.
+  }
+}
+
+export async function resolveFnoUniverse(): Promise<{ instruments: Instrument[]; unresolved: string[]; usedFallback: boolean }> {
   const now = Date.now();
   if (cachedUniverse && now - cachedAt < CACHE_TTL_MS) {
-    return { instruments: cachedUniverse, unresolved: [] };
+    return { instruments: cachedUniverse, unresolved: [], usedFallback: false };
   }
 
-  const rows = await fetchNseInstrumentMasterRaw();
+  try {
+    const rows = await fetchNseInstrumentMasterRaw();
 
-  const equities = rows.filter((r) => r.segment === "NSE_EQ" && r.instrument_type === "EQ");
-  const eqBySymbol = new Map(equities.map((r) => [r.trading_symbol, r]));
+    const equities = rows.filter((r) => r.segment === "NSE_EQ" && r.instrument_type === "EQ");
+    const eqBySymbol = new Map(equities.map((r) => [r.trading_symbol, r]));
 
-  const futures = rows.filter((r) => r.segment === "NSE_FO" && r.instrument_type === "FUT");
-  const underlyingSymbols = new Set<string>();
-  for (const f of futures) {
-    const underlying = f.underlying_symbol || deriveUnderlyingFromTradingSymbol(f.trading_symbol);
-    if (underlying) underlyingSymbols.add(underlying);
-  }
-
-  const instruments: Instrument[] = [];
-  const unresolved: string[] = [];
-  for (const symbol of Array.from(underlyingSymbols).sort()) {
-    const match = eqBySymbol.get(symbol);
-    if (match) {
-      instruments.push({ symbol, instrumentKey: match.instrument_key, name: match.name });
-    } else if (!KNOWN_INDEX_UNDERLYINGS.has(symbol)) {
-      unresolved.push(symbol);
+    const futures = rows.filter((r) => r.segment === "NSE_FO" && r.instrument_type === "FUT");
+    const underlyingSymbols = new Set<string>();
+    for (const f of futures) {
+      const underlying = f.underlying_symbol || deriveUnderlyingFromTradingSymbol(f.trading_symbol);
+      if (underlying) underlyingSymbols.add(underlying);
     }
-  }
 
-  cachedUniverse = instruments;
-  cachedAt = now;
-  return { instruments, unresolved };
+    const instruments: Instrument[] = [];
+    const unresolved: string[] = [];
+    for (const symbol of Array.from(underlyingSymbols).sort()) {
+      const match = eqBySymbol.get(symbol);
+      if (match) {
+        instruments.push({ symbol, instrumentKey: match.instrument_key, name: match.name });
+      } else if (!KNOWN_INDEX_UNDERLYINGS.has(symbol)) {
+        unresolved.push(symbol);
+      }
+    }
+
+    if (instruments.length === 0) {
+      throw new Error("Upstox instrument master downloaded but yielded zero resolvable F&O stocks");
+    }
+
+    cachedUniverse = instruments;
+    cachedAt = now;
+    void writeDiskCache(instruments); // fire-and-forget; don't block the scan on disk I/O
+    return { instruments, unresolved, usedFallback: false };
+  } catch (err) {
+    const fallback = await readDiskCache();
+    if (fallback && fallback.instruments.length > 0) {
+      cachedUniverse = fallback.instruments;
+      cachedAt = now; // avoid hammering the failing endpoint every scan cycle
+      return { instruments: fallback.instruments, unresolved: [], usedFallback: true };
+    }
+    throw err;
+  }
 }
 
 export function clearUniverseCache(): void {
