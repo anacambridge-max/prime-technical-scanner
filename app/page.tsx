@@ -36,7 +36,6 @@ export default function DashboardPage() {
       setResult(data);
       setFetchError(null);
     } catch (err) {
-      // Network/client-side failure: keep showing the last good result rather than blanking the screen.
       setFetchError(err instanceof Error ? err.message : "Failed to reach the scanner");
       if (lastGoodRef.current) setResult(lastGoodRef.current);
     } finally {
@@ -100,7 +99,12 @@ export default function DashboardPage() {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(iso).toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function Header({
