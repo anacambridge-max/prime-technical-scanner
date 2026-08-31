@@ -2,6 +2,7 @@ import "server-only";
 import { gunzipSync } from "zlib";
 import { Candle, Instrument } from "./types";
 import { dailyCandlePath, intradayCandlePath, ltpPath } from "./upstox-urls";
+import { acquireUpstoxSlot } from "./rate-limiter";
 
 /**
  * Server-side Upstox API client.
@@ -54,6 +55,7 @@ async function upstoxGet<T>(path: string, options: FetchOptions = {}): Promise<T
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
+      await acquireUpstoxSlot(); // respect Upstox's 25/sec, 250/min, 1000/30min limits
       const res = await fetch(`${UPSTOX_BASE_URL}${path}`, {
         method: "GET",
         headers: {

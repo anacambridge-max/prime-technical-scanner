@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "fs/promises";
 import path from "path";
-import { ScanMeta, Signal, SignalLogEntry } from "./types";
+import { PDLevels, ScanMeta, Signal, SignalLogEntry } from "./types";
 
 /**
  * Persists the day's scan state so that once a stock appears (WATCH/SETUP/CONFIRMED)
@@ -24,6 +24,13 @@ export interface DayState {
   signals: Record<string, Signal>; // keyed by Signal.id (`${symbol}:${tradingDate}`)
   log: SignalLogEntry[];
   lastMeta: ScanMeta | null;
+  /** PDH/PDL never changes intraday — cache it once per symbol per day so we don't
+   * burn Upstox's tight rate limit (25/sec, 250/min, 1000/30min) re-fetching it every
+   * scan cycle. */
+  pdLevelsCache: Record<string, PDLevels>;
+  /** Rotating cursor into the (stable-ordered) universe so each scan cycle only pulls
+   * live data for a small batch of symbols instead of all of them at once. */
+  scanCursor: number;
 }
 
 export interface DayStore {
@@ -32,7 +39,7 @@ export interface DayStore {
 }
 
 function emptyState(tradingDate: string): DayState {
-  return { tradingDate, signals: {}, log: [], lastMeta: null };
+  return { tradingDate, signals: {}, log: [], lastMeta: null, pdLevelsCache: {}, scanCursor: 0 };
 }
 
 class FileDayStore implements DayStore {
@@ -81,7 +88,13 @@ export function getDayStore(): DayStore {
 export async function getOrCreateDayState(tradingDate: string): Promise<DayState> {
   const store = getDayStore();
   const existing = await store.load(tradingDate);
-  return existing ?? emptyState(tradingDate);
+  if (!existing) return emptyState(tradingDate);
+  // Backfill fields for state persisted before pdLevelsCache/scanCursor existed.
+  return {
+    ...existing,
+    pdLevelsCache: existing.pdLevelsCache ?? {},
+    scanCursor: existing.scanCursor ?? 0,
+  };
 }
 
 export async function saveDayState(state: DayState): Promise<void> {

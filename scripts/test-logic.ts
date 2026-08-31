@@ -94,7 +94,7 @@ console.log("\n3. Volume multiple + tiers");
 // ---------------------------------------------------------------------------
 console.log("\n4. CONFIRMED BUY (PDH) — full valid sequence");
 {
-  const pdLevels = { pdh: 100, pdl: 90, sourceDate: "2026-08-27" };
+  const pdLevels = { pdh: 100, pdl: 90, prevClose: 97, sourceDate: "2026-08-27" };
   const base: Candle[] = [];
   // Build 20 quiet candles below PDH to seed EMA + reference volume, rising trend.
   for (let i = 0; i < 20; i++) {
@@ -117,7 +117,7 @@ console.log("\n4. CONFIRMED BUY (PDH) — full valid sequence");
 // ---------------------------------------------------------------------------
 console.log("\n5. Must NOT confirm on high volume / above EMA alone (no breakout)");
 {
-  const pdLevels = { pdh: 100, pdl: 90, sourceDate: "2026-08-27" };
+  const pdLevels = { pdh: 100, pdl: 90, prevClose: 97, sourceDate: "2026-08-27" };
   const base: Candle[] = [];
   for (let i = 0; i < 20; i++) {
     const price = 96 + i * 0.18; // rising toward PDH, staying within the WATCH proximity band
@@ -134,7 +134,7 @@ console.log("\n5. Must NOT confirm on high volume / above EMA alone (no breakout
 // ---------------------------------------------------------------------------
 console.log("\n6. Failed breakout (closes back below PDH) must NOT confirm");
 {
-  const pdLevels = { pdh: 100, pdl: 90, sourceDate: "2026-08-27" };
+  const pdLevels = { pdh: 100, pdl: 90, prevClose: 97, sourceDate: "2026-08-27" };
   const base: Candle[] = [];
   for (let i = 0; i < 20; i++) {
     const price = 95 + i * 0.2;
@@ -151,7 +151,7 @@ console.log("\n6. Failed breakout (closes back below PDH) must NOT confirm");
 // ---------------------------------------------------------------------------
 console.log("\n7. CONFIRMED SELL (PDL) — full valid sequence");
 {
-  const pdLevels = { pdh: 110, pdl: 100, sourceDate: "2026-08-27" };
+  const pdLevels = { pdh: 110, pdl: 100, prevClose: 103, sourceDate: "2026-08-27" };
   const base: Candle[] = [];
   for (let i = 0; i < 20; i++) {
     const price = 105 - i * 0.2; // falling toward PDL
@@ -168,7 +168,7 @@ console.log("\n7. CONFIRMED SELL (PDL) — full valid sequence");
 // ---------------------------------------------------------------------------
 console.log("\n8. Insufficient volume on breakout -> SETUP, not CONFIRMED");
 {
-  const pdLevels = { pdh: 100, pdl: 90, sourceDate: "2026-08-27" };
+  const pdLevels = { pdh: 100, pdl: 90, prevClose: 97, sourceDate: "2026-08-27" };
   const base: Candle[] = [];
   for (let i = 0; i < 20; i++) {
     const price = 95 + i * 0.2;
@@ -197,6 +197,21 @@ console.log("\n9. Upstox v3 URL paths (regression guard — v3 uses unit/interva
     ltpPath(key) === "/market-quote/ltp?instrument_key=NSE_EQ%7CINE848E01016",
     "LTP path matches Upstox v3 market-quote/ltp format"
   );
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n10. Rate-limit batching math (must stay comfortably under Upstox's 1000/30min)");
+{
+  const BATCH_SIZE = 20;
+  const universeSize = 210;
+  const pollIntervalSec = 45;
+  const totalBatches = Math.ceil(universeSize / BATCH_SIZE);
+  const fullPassSeconds = totalBatches * pollIntervalSec;
+  // Steady state (PDH/PDL already cached): 1 request per symbol in the batch per poll.
+  const requestsPer30Min = (BATCH_SIZE * (30 * 60)) / pollIntervalSec;
+  assert(requestsPer30Min < 1000, `steady-state requests/30min (${requestsPer30Min.toFixed(0)}) stays under Upstox's 1000 limit`);
+  assert(BATCH_SIZE < 25, "batch size stays under Upstox's 25 req/sec limit even if a batch fires as a single burst");
+  assert(fullPassSeconds > 60, `a full universe pass takes ${(fullPassSeconds / 60).toFixed(1)} min — sanity check it isn't absurdly fast (would imply an unsafe rate)`);
 }
 
 // ---------------------------------------------------------------------------

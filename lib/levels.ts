@@ -30,6 +30,7 @@ export function computePDLevels(dailyCandles: Candle[], expectedPrevDate: string
   return {
     pdh: prevDayCandle.high,
     pdl: prevDayCandle.low,
+    prevClose: prevDayCandle.close,
     sourceDate: candleDate,
   };
 }

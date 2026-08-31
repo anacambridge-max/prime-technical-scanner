@@ -61,6 +61,9 @@ export default function DashboardPage() {
           {meta.message}
         </div>
       )}
+      {meta?.batchLabel && !meta.message && (
+        <div className="mt-3 text-2xs text-ink-500">{meta.batchLabel}</div>
+      )}
       {fetchError && (
         <div className="mt-3 rounded-md border border-sell/40 bg-sell-bg px-3 py-2 text-2xs text-sell">
           Connection issue: {fetchError}. Showing the last successful scan.

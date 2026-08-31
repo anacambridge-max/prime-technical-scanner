@@ -27,13 +27,40 @@ as confirmation filters. **This app never places or modifies any order — it is
   scanner use a "completed candle" for anything — this app will not confirm off a
   still-forming candle.
 - From 09:20 onward, every scan cycle (default every 45s, configurable in
-  `app/page.tsx` → `REFRESH_MS`) re-evaluates every NSE F&O stock. As soon as a
-  symbol's completed candles satisfy the full CONFIRMED sequence (breakout/breakdown →
-  volume → EMA alignment → follow-through), it appears in the table and **stays there
-  for the rest of the day**, even outside 9:15–10:00.
+  `app/page.tsx` → `REFRESH_MS`) refreshes a rotating batch of the F&O universe (see
+  "A note on scan cadence" below — Upstox's rate limits make refreshing all ~210 stocks
+  every cycle impossible). As soon as a symbol's completed candles satisfy the full
+  CONFIRMED sequence (breakout/breakdown → volume → EMA alignment → follow-through), it
+  appears in the table and **stays there for the rest of the day**, even outside 9:15–10:00.
 - Outside market hours / on weekends & holidays, the dashboard shows the last
   successful scan and a clear `MARKET CLOSED` state instead of generating fresh
   (necessarily stale) confirmations.
+
+## A note on scan cadence (Upstox's rate limits are real)
+
+Upstox allows **25 requests/sec, 250/min, 1000 per 30 minutes** per user
+(https://upstox.com/developer/api-documentation/rate-limiting/). Scanning all ~210 F&O
+stocks on every 30–60 second poll would need 200-400+ requests per cycle — far over
+budget and a fast route to a temporary suspension.
+
+To respect this, the scanner:
+- **Caches PDH/PDL once per symbol per day** (`lib/store.ts`'s `pdLevelsCache`) since it
+  physically cannot change intraday — this alone cuts steady-state usage in half.
+- **Rotates through the universe in batches of 20 symbols per scan cycle**
+  (`BATCH_SIZE` in `lib/scanner.ts`), cycling through the full ~210-stock universe over
+  roughly 8-9 minutes rather than refreshing everything every poll. The dashboard shows
+  which batch is currently in rotation (e.g. "Batch 3/11 (symbols 41–60 of 210)").
+- Applies a sliding-window rate limiter (`lib/rate-limiter.ts`) as a hard backstop that
+  self-throttles regardless of batch size, so a burst of manual refreshes can't trigger
+  a real 429/suspension.
+
+This means any individual stock's data is refreshed roughly every 8-9 minutes rather
+than every 30-60 seconds — a real constraint of polling ~200 instruments individually
+via REST under Upstox's retail-tier limits, not a bug. If you need true sub-minute
+latency across the whole universe, the correct next step is Upstox's WebSocket market
+feed (subscribe once, receive live ticks continuously, no per-symbol REST polling) —
+that's a larger architectural change than this REST-based version and isn't implemented
+here yet.
 
 ## Project layout
 
@@ -46,6 +73,9 @@ lib/
   volume.ts       5-minute volume multiple + tier classification
   prime.ts        The WATCH/SETUP/CONFIRMED state machine (the core engine)
   upstox.ts       Server-only Upstox API client (retries, auth/rate-limit handling)
+  upstox-urls.ts  Pure v3 endpoint path builders (unit-tested — this exact class of bug
+                  bit us once: v3 uses "minutes/5"/"days/1", not v2's "5minute"/"day")
+  rate-limiter.ts Sliding-window limiter enforcing Upstox's 25/sec, 250/min, 1000/30min
   universe.ts     Resolves the live NSE F&O stock universe from Upstox's instrument master
   scanner.ts      Orchestrates one full scan cycle across the universe
   store.ts        Per-trading-day persistence so signals don't disappear intraday

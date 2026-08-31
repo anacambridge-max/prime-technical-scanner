@@ -26,6 +26,9 @@ export interface Instrument {
 export interface PDLevels {
   pdh: number;
   pdl: number;
+  /** Previous day's close, cached alongside PDH/PDL from the same daily candle so
+   * change% can be computed without an extra Upstox request every scan cycle. */
+  prevClose: number;
   sourceDate: string; // trading date (YYYY-MM-DD) the PDH/PDL were derived from
 }
 
@@ -119,6 +122,10 @@ export interface ScanMeta {
   errors: ScanErrorEntry[];
   usedStaleData: boolean;
   message: string | null;
+  /** Human-readable rotation progress, e.g. "Batch 3/11 (symbols 41–60 of 210)" — the
+   * scanner refreshes symbols in rotating batches to respect Upstox's rate limits, so
+   * not every symbol updates on every cycle. Null when not applicable (market closed etc). */
+  batchLabel: string | null;
 }
 
 export interface ScanResult {
