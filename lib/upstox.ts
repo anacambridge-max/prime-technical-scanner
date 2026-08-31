@@ -1,6 +1,7 @@
 import "server-only";
 import { gunzipSync } from "zlib";
 import { Candle, Instrument } from "./types";
+import { dailyCandlePath, intradayCandlePath, ltpPath } from "./upstox-urls";
 
 /**
  * Server-side Upstox API client.
@@ -102,8 +103,8 @@ interface UpstoxCandleResponse {
  * intraday endpoints are treated as complete.
  */
 export async function fetchIntraday5MinCandles(instrumentKey: string, now: Date = new Date()): Promise<Candle[]> {
-  const encodedKey = encodeURIComponent(instrumentKey);
-  const json = await upstoxGet<UpstoxCandleResponse>(`/historical-candle/intraday/${encodedKey}/5minute`);
+  // v3 intraday candle path: /historical-candle/intraday/{instrument_key}/{unit}/{interval}
+  const json = await upstoxGet<UpstoxCandleResponse>(intradayCandlePath(instrumentKey));
 
   const rows = json.data?.candles ?? [];
   if (!Array.isArray(rows) || rows.length === 0) return [];
@@ -140,10 +141,8 @@ export async function fetchIntraday5MinCandles(instrumentKey: string, now: Date 
  * `toDate`/`fromDate` are YYYY-MM-DD. Returns ascending (oldest first).
  */
 export async function fetchDailyCandles(instrumentKey: string, fromDate: string, toDate: string): Promise<Candle[]> {
-  const encodedKey = encodeURIComponent(instrumentKey);
-  const json = await upstoxGet<UpstoxCandleResponse>(
-    `/historical-candle/${encodedKey}/day/${toDate}/${fromDate}`
-  );
+  // v3 historical candle path: /historical-candle/{instrument_key}/{unit}/{interval}/{to_date}/{from_date}
+  const json = await upstoxGet<UpstoxCandleResponse>(dailyCandlePath(instrumentKey, fromDate, toDate));
   const rows = json.data?.candles ?? [];
   if (!Array.isArray(rows) || rows.length === 0) return [];
   const ascending = [...rows].reverse();
@@ -172,8 +171,7 @@ interface UpstoxLtpResponse {
 }
 
 export async function fetchLastPrice(instrumentKey: string): Promise<number | null> {
-  const encodedKey = encodeURIComponent(instrumentKey);
-  const json = await upstoxGet<UpstoxLtpResponse>(`/market-quote/ltp?instrument_key=${encodedKey}`);
+  const json = await upstoxGet<UpstoxLtpResponse>(ltpPath(instrumentKey));
   const entry = json.data ? Object.values(json.data)[0] : undefined;
   return entry ? entry.last_price : null;
 }

@@ -7,6 +7,7 @@ import { computePDLevels, distanceFromLevelPct } from "../lib/levels";
 import { computeEMASeries, latestEMAReading } from "../lib/indicators";
 import { computeReferenceVolume, classifyVolumeTier, computeVolumeReading } from "../lib/volume";
 import { evaluateSymbol, DEFAULT_SCANNER_CONFIG } from "../lib/prime";
+import { intradayCandlePath, dailyCandlePath, ltpPath } from "../lib/upstox-urls";
 import { Candle, ScannerConfig } from "../lib/types";
 
 let passed = 0;
@@ -178,6 +179,24 @@ console.log("\n8. Insufficient volume on breakout -> SETUP, not CONFIRMED");
   const outcome = evaluateSymbol({ symbol: "TEST5", candles, pdLevels, config: DEFAULT_SCANNER_CONFIG });
   assert(outcome !== null && outcome.status === "SETUP", "breakout with insufficient volume is only SETUP");
   assert(outcome !== null && /insufficient 5-min volume/i.test(outcome.reason), "reason explains the missing volume condition");
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n9. Upstox v3 URL paths (regression guard — v3 uses unit/interval, NOT v2 shorthand)");
+{
+  const key = "NSE_EQ|INE848E01016";
+  assert(
+    intradayCandlePath(key) === "/historical-candle/intraday/NSE_EQ%7CINE848E01016/minutes/5",
+    "intraday path uses v3 'minutes/5' shape, not v2 '5minute'"
+  );
+  assert(
+    dailyCandlePath(key, "2026-08-27", "2026-08-28") === "/historical-candle/NSE_EQ%7CINE848E01016/days/1/2026-08-28/2026-08-27",
+    "daily path uses v3 'days/1' shape with to_date before from_date, not v2 'day'"
+  );
+  assert(
+    ltpPath(key) === "/market-quote/ltp?instrument_key=NSE_EQ%7CINE848E01016",
+    "LTP path matches Upstox v3 market-quote/ltp format"
+  );
 }
 
 // ---------------------------------------------------------------------------

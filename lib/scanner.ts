@@ -264,6 +264,13 @@ export async function runScan(now: Date = new Date()): Promise<ScanResult> {
   const errorCount = errors.length;
   const dataStatus: ScanMeta["dataStatus"] = errorCount === 0 ? "OK" : errorCount < scannedCount ? "PARTIAL" : "ERROR";
 
+  // Surface the actual failure reason rather than a generic line, so a systemic issue
+  // (wrong endpoint, bad token, rate limit) is diagnosable straight from the dashboard
+  // instead of requiring a log dive.
+  const reasonCounts = new Map<string, number>();
+  for (const e of errors) reasonCounts.set(e.reason, (reasonCounts.get(e.reason) ?? 0) + 1);
+  const topReason = [...reasonCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+
   const meta: ScanMeta = {
     scanTime: scanTimeIso,
     lastSuccessfulScanTime: scanTimeIso,
@@ -278,9 +285,13 @@ export async function runScan(now: Date = new Date()): Promise<ScanResult> {
     message: usedFallbackUniverse
       ? "Using the last known-good F&O stock list (live download from Upstox failed this cycle); scan results below are still fresh."
       : dataStatus === "ERROR"
-        ? "Upstox temporarily returned no usable 5-minute candles for this scan. Showing last successful scan."
+        ? `Upstox returned no usable 5-minute candles for this scan${
+            topReason ? ` — most symbols failed with: "${topReason[0]}" (${topReason[1]}/${scannedCount})` : ""
+          }. Showing last successful scan.`
         : dataStatus === "PARTIAL"
-        ? `${errorCount} of ${scannedCount} symbols failed this cycle; showing results for the rest.`
+        ? `${errorCount} of ${scannedCount} symbols failed this cycle${
+            topReason ? ` — most common reason: "${topReason[0]}" (${topReason[1]})` : ""
+          }; showing results for the rest.`
         : null,
   };
 
