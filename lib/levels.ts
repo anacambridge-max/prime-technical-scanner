@@ -1,4 +1,5 @@
 import { Candle, PDLevels } from "./types";
+import { istTradingDate } from "./time";
 
 /**
  * Computes Previous Day High / Previous Day Low.
@@ -20,7 +21,12 @@ export function computePDLevels(dailyCandles: Candle[], expectedPrevDate: string
 
   // Defensive check: the candle we're using must actually date to the expected previous
   // trading day, otherwise we risk silently using today's forming candle as PDH/PDL.
-  const candleDate = prevDayCandle.timestamp.slice(0, 10);
+  // IMPORTANT: candle.timestamp is stored as a UTC ISO string (new Date(ts).toISOString()
+  // in lib/upstox.ts), so naively slicing the first 10 characters reads the wrong
+  // calendar day for any IST time before 05:30 UTC (i.e. most of the trading day) — a
+  // midnight-IST candle becomes the previous evening in UTC. Re-derive the IST wall-clock
+  // date properly instead of string-slicing the UTC representation.
+  const candleDate = istTradingDate(new Date(prevDayCandle.timestamp));
   if (candleDate !== expectedPrevDate) return null;
 
   if (!Number.isFinite(prevDayCandle.high) || !Number.isFinite(prevDayCandle.low)) return null;

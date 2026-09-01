@@ -50,6 +50,23 @@ console.log("\n1. PDH/PDL calculation");
   assert(inverted === null, "rejects a malformed candle where low > high");
 
   assert(approx(distanceFromLevelPct(410, 400), 2.5), "distanceFromLevelPct computes % distance correctly");
+
+  // Regression test for a real production bug: Upstox returns dates like
+  // "2026-08-31T00:00:00+05:30" (IST midnight). Converting to UTC for storage
+  // (as lib/upstox.ts does) shifts this to "2026-08-30T18:30:00.000Z" — naively
+  // slicing the first 10 chars of that would misread it as Aug 30, rejecting every
+  // valid PDH/PDL. computePDLevels must correctly re-derive the IST calendar date.
+  const rawUpstoxStyleTimestamp = "2026-08-31T00:00:00+05:30";
+  const storedAsUtc = new Date(rawUpstoxStyleTimestamp).toISOString(); // what lib/upstox.ts actually stores
+  assert(storedAsUtc.startsWith("2026-08-30"), "sanity check: UTC conversion really does shift the calendar day back (proves the bug scenario is real)");
+  const midnightIstDaily: Candle[] = [
+    { timestamp: storedAsUtc, open: 400, high: 412, low: 396, close: 408, volume: 900_000, isComplete: true },
+  ];
+  const pdFromMidnightIst = computePDLevels(midnightIstDaily, "2026-08-31");
+  assert(
+    pdFromMidnightIst !== null && approx(pdFromMidnightIst.pdh, 412),
+    "computePDLevels correctly matches an IST-midnight candle to its true IST trading date, not the UTC-shifted date"
+  );
 }
 
 // ---------------------------------------------------------------------------
