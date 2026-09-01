@@ -224,6 +224,26 @@ export async function runScan(now: Date = new Date()): Promise<ScanResult> {
     });
   }
 
+  if (marketStatus === "CLOSED") {
+    // Past 15:30 IST on a trading day — never spend Upstox requests trying to generate
+    // "fresh" confirmations from a market that isn't moving anymore. Just show today's
+    // final scan state as-is.
+    return buildResultFromState(state, {
+      scanTime: scanTimeIso,
+      lastSuccessfulScanTime: state.lastMeta?.lastSuccessfulScanTime ?? null,
+      marketOpen: false,
+      marketStatus,
+      universeCount: state.lastMeta?.universeCount ?? 0,
+      scannedCount: 0,
+      errorCount: 0,
+      dataStatus: "OK",
+      errors: [],
+      usedStaleData: false,
+      batchLabel: null,
+      message: "Market closed for the day (after 15:30 IST). Showing today's final scan.",
+    });
+  }
+
   if (marketStatus === "OPEN" && !firstCandleHasClosed(now)) {
     return buildResultFromState(state, {
       scanTime: scanTimeIso,
